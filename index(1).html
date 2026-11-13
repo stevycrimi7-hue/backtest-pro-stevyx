@@ -309,9 +309,10 @@ let D={},SU={c:[['Tendance H1/H4 alignée',0],['Order block / zone touchée',0],
 let NEWS=[], newsLastFetch=0, newsNextFetchTimer=null;
 const NEWS_CACHE_KEY='stevyx_ff_news_v1';
 const NEWS_FETCH_INTERVAL=15*60*1000;
-const FF_URL='https://nfs.faireconomy.media/ff_calendar_thisweek.json';
+// La ligne magique qui utilise ta fonction Netlify
+const FF_URL='/.netlify/functions/news';
 
-/* ---------- CATALOGUE (Étape B conservée) ---------- */
+/* ---------- CATALOGUE ---------- */
 const IND_CATALOG = {
   ma:{name:'Moyennes mobiles',fam:'Tendance',params:[{key:'fast',type:'number',label:'Rapide',def:20,min:1,max:200},{key:'slow',type:'number',label:'Lente',def:50,min:2,max:400},{key:'method',type:'select',label:'Méthode',def:'EMA',options:['SMA','EMA','WMA']}],onChartByDefault:true},
   ichimoku:{name:'Ichimoku',fam:'Tendance',params:[{key:'tenkan',type:'number',label:'Tenkan',def:9,min:1,max:100},{key:'kijun',type:'number',label:'Kijun',def:26,min:1,max:200},{key:'senkou',type:'number',label:'Senkou B',def:52,min:1,max:300}],onChartByDefault:true},
@@ -388,7 +389,7 @@ function psarCalc(highs,lows,closes,step=0.02,max=0.2){let up=true,psar=lows[0],
 function supertrendCalc(highs,lows,closes,period=10,mult=3){const atr=atrCalc(closes.map((c,i)=>({h:highs[i],l:lows[i],c})),period);const out=[];for(let i=0;i<closes.length;i++){const mid=(highs[i]+lows[i])/2;const up=mid-atr[i]*mult,dn=mid+atr[i]*mult;out.push({upper:up,lower:dn})}return out}
 function ichimokuCalc(highs,lows,closes,tenkan=9,kijun=26,senkou=52){const tenkanArr=[],kijunArr=[],senkouAArr=[],senkouBArr=[];for(let i=0;i<closes.length;i++){if(i<tenkan-1){tenkanArr.push(null)}else{const hh=Math.max(...highs.slice(i-tenkan+1,i+1)),ll=Math.min(...lows.slice(i-tenkan+1,i+1));tenkanArr.push((hh+ll)/2)}if(i<kijun-1){kijunArr.push(null)}else{const hh=Math.max(...highs.slice(i-kijun+1,i+1)),ll=Math.min(...lows.slice(i-kijun+1,i+1));kijunArr.push((hh+ll)/2)}if(i<senkou-1){senkouBArr.push(null)}else{const hh=Math.max(...highs.slice(i-senkou+1,i+1)),ll=Math.min(...lows.slice(i-senkou+1,i+1));senkouBArr.push((hh+ll)/2)}senkouAArr.push(tenkanArr[i]!=null&&kijunArr[i]!=null?(tenkanArr[i]+kijunArr[i])/2:null)}return{tenkan:tenkanArr,kijun:kijunArr,senkouA:senkouAArr,senkouB:senkouBArr}}
 
-/* ---------- INTERPRÉTATIONS (Étape B conservées) ---------- */
+/* ---------- INTERPRÉTATIONS ---------- */
 function interpretRSI(v){if(v==null)return{v:null,b:0,z:'—',t:'Donnée insuffisante'};if(v>=80)return{v,b:-1,z:'surachat extrême',t:'RSI > 80 : surachat extrême, risque de retournement imminent.'};if(v>=70)return{v,b:-1,z:'surachat',t:'RSI > 70 : surachat, prudence sur les achats.'};if(v<=20)return{v,b:+1,z:'survendu extrême',t:'RSI < 20 : survendu extrême, rebond probable.'};if(v<=30)return{v,b:+1,z:'survendu',t:'RSI < 30 : survendu, zone de rebond.'};if(v>=55)return{v,b:+1,z:'haussier',t:'RSI 55-70 : momentum haussier sain.'};if(v<=45)return{v,b:-1,z:'baissier',t:'RSI 30-45 : momentum baissier.'};return{v,b:0,z:'neutre',t:'RSI 45-55 : neutre.'}}
 function interpretVol(k,avg){const v=k.h-k.l;if(!avg)return{v,b:0,z:'—',t:'Volume estimé'};const r=v/avg;if(r>2)return{v,b:0,z:'très fort',t:`Volume ${r.toFixed(1)}× : conviction forte.`};if(r>1.5)return{v,b:0,z:'fort',t:`Volume ${r.toFixed(1)}× : signal fiable.`};if(r<0.5)return{v,b:0,z:'très faible',t:`Volume ${r.toFixed(1)}× : signal à ignorer.`};if(r<0.7)return{v,b:0,z:'faible',t:`Volume ${r.toFixed(1)}× : prudence.`};return{v,b:0,z:'normal',t:`Volume ${r.toFixed(1)}× : normal.`}}
 function interpretVP(bins,price){if(!bins.length)return{v:0,b:0,z:'—',t:'Profil en construction'};let maxV=0;bins.forEach(x=>{if(x>maxV)maxV=x});const pocIdxs=bins.map((v,i)=>v===maxV?i:-1).filter(i=>i>=0);const lo=S.lo,hi=S.hi,binH=(hi-lo)/bins.length;const pocPrice=lo+(pocIdxs[0]+pocIdxs[pocIdxs.length-1]+1)*binH/2;const bias=price>pocPrice?+1:price<pocPrice?-1:0;const distPct=Math.abs(price-pocPrice)/price*100;if(distPct<0.1)return{v:pocPrice,b:0,z:'sur POC',t:`Prix au POC ${fx(pocPrice)} : équilibre.`};return{v:pocPrice,b:bias,z:bias>0?'au-dessus POC':'sous POC',t:`POC ${fx(pocPrice)} — prix ${(bias>0?'au-dessus':'sous')} (${distPct.toFixed(2)}%).`}}
@@ -497,19 +498,9 @@ window.updateParam=(k,key,val)=>{if(!indicators[k])return;const param=IND_CATALO
 function populatePicker(){const sel=$('#indPicker');if(!sel)return;const active=new Set(Object.keys(indicators));const byFam={};Object.entries(IND_CATALOG).filter(([k])=>!active.has(k)).forEach(([k,c])=>{if(!byFam[c.fam])byFam[c.fam]=[];byFam[c.fam].push([k,c])});const famOrder=['Tendance','Momentum','Volatilité','Volume','Structure','Divergences'];let html='<option value="">+ Ajouter un indicateur…</option>';famOrder.forEach(fam=>{if(!byFam[fam]||!byFam[fam].length)return;html+=`<optgroup label="${fam}">`;byFam[fam].forEach(([k,c])=>{html+=`<option value="${k}">${c.name}</option>`});html+='</optgroup>'});sel.innerHTML=html}
 $('#indPicker').onchange=e=>{const k=e.target.value;if(!k)return;indicators[k]=defaultsFor(k);saveIndicators();renderIndicators();populatePicker();draw();e.target.value=''};
 
-/* ---------- ÉCRAN 3 — NEWS FOREXFACTORY ---------- */
-function getSymbolCurrencies(){
-  const s=sym.replace('frx','');
-  if(s==='XAUUSD')return{base:'XAU',quote:'USD'};
-  if(s.length===6)return{base:s.slice(0,3),quote:s.slice(3,6)};
-  return{base:'USD',quote:'USD'};
-}
-function loadNewsCache(){
-  try{const c=JSON.parse(localStorage.getItem(NEWS_CACHE_KEY)||'null');
-    if(c&&Array.isArray(c.events)&&Date.now()-c.at<NEWS_FETCH_INTERVAL){NEWS=c.events.map(e=>({...e,date:new Date(e.date)}));newsLastFetch=c.at;return true}
-  }catch(e){}
-  return false;
-}
+/* ---------- ÉCRAN 3 — NEWS ---------- */
+function getSymbolCurrencies(){const s=sym.replace('frx','');if(s==='XAUUSD')return{base:'XAU',quote:'USD'};if(s.length===6)return{base:s.slice(0,3),quote:s.slice(3,6)};return{base:'USD',quote:'USD'}}
+function loadNewsCache(){try{const c=JSON.parse(localStorage.getItem(NEWS_CACHE_KEY)||'null');if(c&&Array.isArray(c.events)&&Date.now()-c.at<NEWS_FETCH_INTERVAL){NEWS=c.events.map(e=>({...e,date:new Date(e.date)}));newsLastFetch=c.at;return true}}catch(e){}return false}
 function saveNewsCache(){try{localStorage.setItem(NEWS_CACHE_KEY,JSON.stringify({at:newsLastFetch,events:NEWS.map(e=>({...e,date:e.date.toISOString()}))}))}catch(e){}}
 async function fetchNews(force=false){
   if(!force&&Date.now()-newsLastFetch<NEWS_FETCH_INTERVAL)return;
@@ -518,47 +509,12 @@ async function fetchNews(force=false){
     const r=await fetch(FF_URL,{cache:'no-store'});
     if(!r.ok)throw new Error('HTTP '+r.status);
     const data=await r.json();
-    const events=data.map(e=>{
-      let impact=(e.impact||'').toLowerCase();
-      if(impact==='high'||impact==='medium'||impact==='low'||impact==='holiday'){}else impact='low';
-      return {title:e.title,country:e.country,impact,date:new Date(e.date),forecast:e.forecast,previous:e.previous,actual:e.actual};
-    }).filter(e=>!isNaN(e.date.getTime()));
-    NEWS=events;newsLastFetch=Date.now();saveNewsCache();
-    renderNews();
-  }catch(err){
-    console.warn('News fetch:',err.message);
-    if(!loadNewsCache()){
-      if(content)content.innerHTML=`<div class="newsEmpty">Impossible de charger les annonces ForexFactory.<br><small style="color:#8b93a5;margin-top:8px;display:block">${err.message}</small></div>`;
-    } else renderNews();
-  }
+    const events=data.map(e=>{let impact=(e.impact||'').toLowerCase();if(impact==='high'||impact==='medium'||impact==='low'||impact==='holiday'){}else impact='low';return{title:e.title,country:e.country,impact,date:new Date(e.date),forecast:e.forecast,previous:e.previous,actual:e.actual}}).filter(e=>!isNaN(e.date.getTime()));
+    NEWS=events;newsLastFetch=Date.now();saveNewsCache();renderNews();
+  }catch(err){console.warn('News fetch:',err.message);if(!loadNewsCache()){if(content)content.innerHTML=`<div class="newsEmpty">Impossible de charger les annonces ForexFactory.<br><small style="color:#8b93a5;margin-top:8px;display:block">${err.message}</small></div>`}else renderNews()}
 }
-function analyseNews(e){
-  const cur=e.country;
-  const {base,quote}=getSymbolCurrencies();
-  const wMap={high:3,medium:2,low:1,holiday:0};
-  const w=wMap[e.impact]??1;
-  let dir=0;
-  if(cur===base)dir=+1;
-  else if(cur===quote)dir=-1;
-  let surprise=null,strength='—';
-  if(e.actual!=null&&e.forecast!=null){
-    const f=parseFloat(String(e.forecast).replace(/[^\d.\-]/g,''));
-    const a=parseFloat(String(e.actual).replace(/[^\d.\-]/g,''));
-    if(Number.isFinite(a)&&Number.isFinite(f)&&f!==0){
-      surprise=(a-f)/Math.abs(f);
-      const s=Math.abs(surprise);
-      strength=s>0.15?'forte':s>0.05?'moyenne':'faible';
-    }
-  }
-  let marketDir=0;
-  if(surprise!=null&&dir!==0){const bullish=surprise>0;marketDir=bullish?dir:-dir}
-  return{impact:e.impact,weight:w,currency:cur,surprise,strength,marketDir};
-}
-function newsWindow(minutes=30){
-  const now=Date.now();
-  const next=NEWS.filter(e=>e.date.getTime()>=now-minutes*60e3&&e.date.getTime()<=now+minutes*60e3&&['high','medium'].includes(e.impact)).sort((a,b)=>a.date-b.date)[0];
-  return next?{active:true,event:next}:{active:false};
-}
+function analyseNews(e){const cur=e.country;const{base,quote}=getSymbolCurrencies();const wMap={high:3,medium:2,low:1,holiday:0};const w=wMap[e.impact]??1;let dir=0;if(cur===base)dir=+1;else if(cur===quote)dir=-1;let surprise=null,strength='—';if(e.actual!=null&&e.forecast!=null){const f=parseFloat(String(e.forecast).replace(/[^\d.\-]/g,''));const a=parseFloat(String(e.actual).replace(/[^\d.\-]/g,''));if(Number.isFinite(a)&&Number.isFinite(f)&&f!==0){surprise=(a-f)/Math.abs(f);const s=Math.abs(surprise);strength=s>0.15?'forte':s>0.05?'moyenne':'faible'}}let marketDir=0;if(surprise!=null&&dir!==0){const bullish=surprise>0;marketDir=bullish?dir:-dir}return{impact:e.impact,weight:w,currency:cur,surprise,strength,marketDir}}
+function newsWindow(minutes=30){const now=Date.now();const next=NEWS.filter(e=>e.date.getTime()>=now-minutes*60e3&&e.date.getTime()<=now+minutes*60e3&&['high','medium'].includes(e.impact)).sort((a,b)=>a.date-b.date)[0];return next?{active:true,event:next}:{active:false}}
 function formatNewsTime(d){return d.toLocaleString('fr',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}
 function renderNews(){
   const status=$('#newsStatus'),info=$('#newsInfo'),content=$('#newsContent'),meta=$('#newsMeta'),box=$('#newsEventBox');
@@ -569,53 +525,15 @@ function renderNews(){
   const past=relevant.filter(e=>e.date.getTime()<now-5*60e3).sort((a,b)=>b.date-a.date).slice(0,5);
   const displayed=[...upcoming,...past].slice(0,20);
   const win=newsWindow();
-  if(status){
-    if(win.active){status.className='status risk';status.textContent='⚠ FENÊTRE À RISQUE ±30 min'}
-    else{status.className='status safe';status.textContent='✓ Aucun événement imminent'}
-  }
-  if(info){
-    if(win.active&&win.event){
-      const a=analyseNews(win.event);
-      info.textContent=`${win.event.country} · ${win.event.title} · ${formatNewsTime(win.event.date)} · impact ${a.impact}`;
-    } else if(upcoming.length){
-      const nextEvt=upcoming[0];
-      const diffMin=Math.round((nextEvt.date.getTime()-now)/60000);
-      info.textContent=`Prochain : ${nextEvt.country} · ${nextEvt.title} dans ${diffMin} min`;
-    } else info.textContent='Aucune annonce medium/high à venir cette semaine';
-  }
-  if(box){
-    if(win.active&&win.event){
-      const a=analyseNews(win.event);
-      const arrow=a.marketDir>0?'▲ HAUSSIER':a.marketDir<0?'▼ BAISSIER':'· neutre';
-      const cls=a.marketDir>0?'up':a.marketDir<0?'dn':'';
-      box.innerHTML=`<b>Analyse de l'événement en cours :</b><br><span class="${cls}">${win.event.country} · ${win.event.title}</span> · impact <b>${a.impact}</b> · force <b>${a.strength}</b><br>Direction attendue sur ${sym.replace('frx','')} : <b class="${cls}">${arrow}</b>`;
-    } else box.innerHTML='';
-  }
-  if(!displayed.length){
-    content.innerHTML='<div class="newsEmpty">Aucune annonce medium/high à afficher.<br><small style="color:#8b93a5;margin-top:8px;display:block">Source : ForexFactory · cache 15 min</small></div>';
-  } else {
-    const rows=displayed.map(e=>{
-      const a=analyseNews(e);
-      const isPast=e.date.getTime()<now-5*60e3;
-      const cls=[e.impact,isPast?'past':''].filter(Boolean).join(' ');
-      const dirCls=a.marketDir>0?'up':a.marketDir<0?'dn':'none';
-      const dirTxt=a.marketDir>0?'▲ HAUSSIER':a.marketDir<0?'▼ BAISSIER':'· neutre';
-      return `<tr class="${cls}"><td>${formatNewsTime(e.date)}</td><td class="cur">${e.country}</td><td class="title">${e.title}</td><td class="nums">${e.forecast??'—'} / ${e.previous??'—'}${e.actual!=null?' → '+e.actual:''}</td><td class="dir ${dirCls}">${dirTxt}<br><small style="color:#8b93a5;font-weight:400">${a.strength}</small></td></tr>`;
-    }).join('');
-    content.innerHTML=`<table class="newsTable"><thead><tr><th>Date</th><th>Devise</th><th>Annonce</th><th>Prév. / Préc. → Réel</th><th>Impact marché</th></tr></thead><tbody>${rows}</tbody></table>`;
-  }
-  if(meta){
-    const ago=newsLastFetch?Math.round((now-newsLastFetch)/60000):null;
-    meta.textContent=`Source : ForexFactory · ${NEWS.filter(e=>['high','medium'].includes(e.impact)).length} événements medium/high · dernière mise à jour : ${ago!=null?ago+' min':'—'}`;
-  }
+  if(status){if(win.active){status.className='status risk';status.textContent='⚠ FENÊTRE À RISQUE ±30 min'}else{status.className='status safe';status.textContent='✓ Aucun événement imminent'}}
+  if(info){if(win.active&&win.event){const a=analyseNews(win.event);info.textContent=`${win.event.country} · ${win.event.title} · ${formatNewsTime(win.event.date)} · impact ${a.impact}`}else if(upcoming.length){const nextEvt=upcoming[0];const diffMin=Math.round((nextEvt.date.getTime()-now)/60000);info.textContent=`Prochain : ${nextEvt.country} · ${nextEvt.title} dans ${diffMin} min`}else info.textContent='Aucune annonce medium/high à venir cette semaine'}
+  if(box){if(win.active&&win.event){const a=analyseNews(win.event);const arrow=a.marketDir>0?'▲ HAUSSIER':a.marketDir<0?'▼ BAISSIER':'· neutre';const cls=a.marketDir>0?'up':a.marketDir<0?'dn':'';box.innerHTML=`<b>Analyse de l'événement en cours :</b><br><span class="${cls}">${win.event.country} · ${win.event.title}</span> · impact <b>${a.impact}</b> · force <b>${a.strength}</b><br>Direction attendue sur ${sym.replace('frx','')} : <b class="${cls}">${arrow}</b>`}else box.innerHTML=''}
+  if(!displayed.length){content.innerHTML='<div class="newsEmpty">Aucune annonce medium/high à afficher.<br><small style="color:#8b93a5;margin-top:8px;display:block">Source : ForexFactory · cache 15 min</small></div>'}
+  else{const rows=displayed.map(e=>{const a=analyseNews(e);const isPast=e.date.getTime()<now-5*60e3;const cls=[e.impact,isPast?'past':''].filter(Boolean).join(' ');const dirCls=a.marketDir>0?'up':a.marketDir<0?'dn':'none';const dirTxt=a.marketDir>0?'▲ HAUSSIER':a.marketDir<0?'▼ BAISSIER':'· neutre';return`<tr class="${cls}"><td>${formatNewsTime(e.date)}</td><td class="cur">${e.country}</td><td class="title">${e.title}</td><td class="nums">${e.forecast??'—'} / ${e.previous??'—'}${e.actual!=null?' → '+e.actual:''}</td><td class="dir ${dirCls}">${dirTxt}<br><small style="color:#8b93a5;font-weight:400">${a.strength}</small></td></tr>`}).join('');content.innerHTML=`<table class="newsTable"><thead><tr><th>Date</th><th>Devise</th><th>Annonce</th><th>Prév. / Préc. → Réel</th><th>Impact marché</th></tr></thead><tbody>${rows}</tbody></table>`}
+  if(meta){const ago=newsLastFetch?Math.round((now-newsLastFetch)/60000):null;meta.textContent=`Source : ForexFactory · ${NEWS.filter(e=>['high','medium'].includes(e.impact)).length} événements medium/high · dernière mise à jour : ${ago!=null?ago+' min':'—'}`}
   scheduleNextNewsRefresh();
 }
-function scheduleNextNewsRefresh(){
-  clearTimeout(newsNextFetchTimer);
-  const elapsed=Date.now()-newsLastFetch;
-  const wait=Math.max(30000,NEWS_FETCH_INTERVAL-elapsed);
-  newsNextFetchTimer=setTimeout(()=>fetchNews(true),wait);
-}
+function scheduleNextNewsRefresh(){clearTimeout(newsNextFetchTimer);const elapsed=Date.now()-newsLastFetch;const wait=Math.max(30000,NEWS_FETCH_INTERVAL-elapsed);newsNextFetchTimer=setTimeout(()=>fetchNews(true),wait)}
 $('#newsRefresh').onclick=()=>fetchNews(true);
 
 /* ---------- CONNEXION DERIV ---------- */
@@ -760,7 +678,7 @@ async function rpCloudSave(){clearTimeout(rpCloudTimer);rpCloudTimer=setTimeout(
 async function rpCloudTrade(t,status){const client=window.stevyxSupabase,userId=window.stevyxUserId;if(!client||!userId)return;try{const sessionId=await rpEnsureSession();if(!sessionId)return;const row={id:t.id,user_id:userId,replay_session_id:sessionId,account_mode:'replay',symbol:t.s,side:t.d>0?'long':'short',timeframe:String(gran),setup_type:'SMC/ICT Replay',entry_price:t.e,stop_loss:t.sl,take_profit:t.tp,exit_price:status==='closed'?t.x:null,position_size:t.l,risk_amount:t.risk,reward_risk:t.rr,pnl:status==='closed'?t.pl:null,status,opened_at:t.openedAt||new Date().toISOString(),closed_at:status==='closed'?t.closedAt:null,metadata:{setup_validated:!!t.ok,source:'replay_account'}};const{error}=await client.from('trades').upsert(row,{onConflict:'id'});if(error)console.warn('Trade Replay:',error.message)}catch(e){console.warn('Trade Replay cloud:',e.message)}}
 rpLoad();
 
-/* ---------- SETUP CHECKLIST (avec vraie news) ---------- */
+/* ---------- SETUP CHECKLIST ---------- */
 const esc=s=>String(s).replace(/[<>&"]/g,'');
 function computeSetup(){
   const n=L();if(n<30)return{score:0,auto:{},manual:0,passed:false};
@@ -881,11 +799,11 @@ populatePicker();
 renderIndicators();
 rpLoad();
 loadNewsCache();
-fetchNews(false); // premier fetch au démarrage
+fetchNews(false);
 </script>
 
 <script>
-/* Auth Supabase (identique Étape B) */
+/* Auth Supabase */
 (()=>{
   "use strict";
   const SUPABASE_URL="https://serfkebnkkpoikuwvwwj.supabase.co";
