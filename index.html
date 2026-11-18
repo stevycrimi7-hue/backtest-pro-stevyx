@@ -817,6 +817,231 @@ journalBtn.onclick=openUltimateJournal;
 const toolbar=document.querySelector('.row');
 if(toolbar){toolbar.appendChild(ultimateBtn);toolbar.appendChild(journalBtn)}
 console.log('[ULTIME v4] Chargé. Journal:',ULTIMATE_JOURNAL.length,'setups');
+/* =========================================================
+   PANNEAU DIAGNOSTIC — Affiche l'état du setup en temps réel
+   ========================================================= */
+
+function createDiagnosticPanel() {
+  const existing = document.getElementById('ultimateDiagnostic');
+  if (existing) return;
+
+  const panel = document.createElement('div');
+  panel.id = 'ultimateDiagnostic';
+  panel.style.cssText = `
+    position: fixed;
+    bottom: 12px;
+    right: 12px;
+    width: 340px;
+    background: rgba(13, 17, 27, 0.96);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px;
+    z-index: 99990;
+    font-size: 11px;
+    line-height: 1.5;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+    max-height: 70vh;
+    overflow-y: auto;
+    transition: all 0.2s;
+  `;
+
+  panel.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <b style="color:#bca8fa;font-size:12px">🔍 Diagnostic Ultime</b>
+      <div style="display:flex;gap:4px">
+        <button id="diagMinimize" style="padding:2px 6px;font-size:10px">_</button>
+        <button id="diagClose" style="padding:2px 6px;font-size:10px">✕</button>
+      </div>
+    </div>
+    <div id="diagContent">
+      <div style="color:#8b93a5;text-align:center;padding:10px">Analyse en cours…</div>
+    </div>
+    <div id="diagScoreBar" style="margin-top:8px">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#8b93a5;margin-bottom:4px">
+        <span>Score</span>
+        <b id="diagScoreValue" style="color:#f5b942">0%</b>
+      </div>
+      <div style="height:8px;background:rgba(255,255,255,.08);border-radius:4px;overflow:hidden">
+        <div id="diagScoreFill" style="height:100%;width:0%;background:#f5b942;transition:width 0.3s,background 0.3s"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:9px;color:#68748b;margin-top:2px">
+        <span>0</span><span style="color:#f5b942">75% (seuil)</span><span>100</span>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(panel);
+
+  document.getElementById('diagClose').onclick = () => panel.remove();
+  document.getElementById('diagMinimize').onclick = () => {
+    const content = document.getElementById('diagContent');
+    const scoreBar = document.getElementById('diagScoreBar');
+    const minimized = content.style.display === 'none';
+    content.style.display = minimized ? 'block' : 'none';
+    scoreBar.style.display = minimized ? 'block' : 'none';
+    document.getElementById('diagMinimize').textContent = minimized ? '_' : '+';
+  };
+
+  // Lance la mise à jour toutes les 2 secondes
+  if (window.diagInterval) clearInterval(window.diagInterval);
+  window.diagInterval = setInterval(updateDiagnosticPanel, 2000);
+  updateDiagnosticPanel();
+}
+
+async function updateDiagnosticPanel() {
+  const content = document.getElementById('diagContent');
+  const scoreValue = document.getElementById('diagScoreValue');
+  const scoreFill = document.getElementById('diagScoreFill');
+  if (!content || !scoreValue || !scoreFill) return;
+
+  if (C.length < 80) {
+    content.innerHTML = `<div style="color:#8b93a5;text-align:center;padding:10px">Attente des données (${C.length}/80 bougies)…</div>`;
+    return;
+  }
+
+  try {
+    const r = await detectUltimateSetup(true); // mode diagnostic (pas d'alerte)
+
+    // Récupère l'état de chaque pilier même si le setup n'est pas validé
+    const pilier = r.diagnostics || {};
+    const structure = pilier.structure || { ok: false, detail: '—' };
+    const trendline = pilier.trendline || { ok: false, detail: '—' };
+    const rsiCheck = pilier.rsi || { ok: false, detail: '—' };
+    const volume = pilier.volume || { ok: false, detail: '—' };
+    const zone = pilier.zone || { ok: false, detail: '—' };
+    const mtf = pilier.mtf || { ok: false, detail: '—' };
+    const retest = pilier.retest || { ok: false, detail: '—' };
+
+    const check = (ok) => ok ? '<span style="color:#26a69a">✓</span>' : '<span style="color:#ef5350">✗</span>';
+
+    content.innerHTML = `
+      <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+        <span>${check(structure.ok)} Structure</span>
+        <span style="color:#8b93a5;font-size:10px">${structure.detail}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+        <span>${check(trendline.ok)} Trendline</span>
+        <span style="color:#8b93a5;font-size:10px">${trendline.detail}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+        <span>${check(rsiCheck.ok)} RSI</span>
+        <span style="color:#8b93a5;font-size:10px">${rsiCheck.detail}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+        <span>${check(volume.ok)} Volume</span>
+        <span style="color:#8b93a5;font-size:10px">${volume.detail}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+        <span>${check(zone.ok)} OB / FVG</span>
+        <span style="color:#8b93a5;font-size:10px">${zone.detail}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+        <span>${check(mtf.ok)} MTF</span>
+        <span style="color:#8b93a5;font-size:10px">${mtf.detail}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0">
+        <span>${check(retest.ok)} Retest</span>
+        <span style="color:#8b93a5;font-size:10px">${retest.detail}</span>
+      </div>
+      ${r.reason ? `<div style="margin-top:6px;padding:6px;background:rgba(245,185,66,.1);border-radius:6px;color:#f5b942;font-size:10px">⏳ ${r.reason}</div>` : ''}
+      ${r.valid ? `<div style="margin-top:6px;padding:6px;background:rgba(38,166,154,.15);border-radius:6px;color:#26a69a;font-weight:bold;font-size:11px">✅ SETUP VALIDÉ — ${r.direction === 'bearish' ? '🔻 BAISSIER' : '🔺 HAUSSIER'}</div>` : ''}
+    `;
+
+    const score = r.score || 0;
+    scoreValue.textContent = score + '%';
+    scoreFill.style.width = Math.min(100, score) + '%';
+    if (score >= 75) {
+      scoreFill.style.background = '#26a69a';
+      scoreValue.style.color = '#26a69a';
+    } else if (score >= 50) {
+      scoreFill.style.background = '#f5b942';
+      scoreValue.style.color = '#f5b942';
+    } else {
+      scoreFill.style.background = '#ef5350';
+      scoreValue.style.color = '#ef5350';
+    }
+  } catch (err) {
+    content.innerHTML = `<div style="color:#ef5350;text-align:center;padding:10px">Erreur: ${err.message}</div>`;
+  }
+}
+
+/* ---------------------------------------------------------
+   MODIFICATION : detectUltimateSetup retourne aussi les diagnostics
+   --------------------------------------------------------- */
+// On wrappe la fonction originale pour ajouter le bloc diagnostics
+const _originalDetect = window.detectUltimateSetup || detectUltimateSetup;
+window.detectUltimateSetup = async function(diagnosticMode = false) {
+  const result = await _originalDetect();
+  // On reconstruit les diagnostics à partir des données internes
+  // (simplification : on relance une analyse locale pour avoir les détails)
+  try {
+    if (C.length < 80) return result;
+    const visible = C.slice(-200);
+    const pivots = findPivots(visible, ULTIMATE_CFG.pivotLookback);
+    const structure = analyseStructure(pivots);
+    const trendline = buildTrendline(pivots, structure.trend);
+    const closes = visible.map(k => k.c);
+    const rsiArr = rsi(closes);
+    const currentRsi = rsiArr[rsiArr.length - 1];
+    const recentVols = visible.slice(-10).map(k => k.h - k.l);
+    const avgVol = recentVols.reduce((s, v) => s + v, 0) / recentVols.length;
+    const lastCandle = C[C.length - 1];
+    const breakVol = lastCandle.h - lastCandle.l;
+    const obs = findOrderBlocks(visible);
+    const fvgs = findFVGs(visible);
+
+    const diagnostics = {
+      structure: {
+        ok: structure.isValid,
+        detail: `${structure.trend} ${structure.swingsCount}sw ${(structure.quality*100).toFixed(0)}%`
+      },
+      trendline: {
+        ok: !!trendline && result.trendBroken,
+        detail: trendline ? (result.trendBroken ? 'cassée' : 'non cassée') : 'N/A'
+      },
+      rsi: {
+        ok: (structure.trend === 'bullish' && currentRsi >= 68 && currentRsi <= 78) ||
+            (structure.trend === 'bearish' && currentRsi >= 22 && currentRsi <= 32),
+        detail: `${currentRsi.toFixed(1)}`
+      },
+      volume: {
+        ok: breakVol < avgVol * 0.9,
+        detail: `${(breakVol/avgVol*100).toFixed(0)}% moy`
+      },
+      zone: {
+        ok: !!result.zone,
+        detail: result.zone ? `${result.zone.kind}` : 'aucun'
+      },
+      mtf: {
+        ok: result.mtfConfluence && result.mtfConfluence.confluence >= 0.5,
+        detail: result.mtfConfluence ? `${result.mtfConfluence.aligned}/${result.mtfConfluence.total}` : '—'
+      },
+      retest: {
+        ok: result.retest && result.retest.type === 'retest',
+        detail: result.retest ? result.retest.type : '—'
+      }
+    };
+
+    return { ...result, diagnostics };
+  } catch (e) {
+    return result;
+  }
+};
+
+/* ---------------------------------------------------------
+   Ajoute un bouton dans la toolbar
+   --------------------------------------------------------- */
+const diagBtn = document.createElement('button');
+diagBtn.textContent = '🔍 Diagnostic';
+diagBtn.style.cssText = 'background:rgba(54,207,194,.2);color:#5fe3d6;font-weight:bold;padding:7px 12px;border-radius:8px;border:1px solid rgba(54,207,194,.4);margin-left:8px;cursor:pointer;';
+diagBtn.onclick = () => {
+  const existing = document.getElementById('ultimateDiagnostic');
+  if (existing) existing.remove();
+  else createDiagnosticPanel();
+};
+const toolbar2 = document.querySelector('.row');
+if (toolbar2) toolbar2.appendChild(diagBtn);
+
+console.log('[DIAGNOSTIC] Panneau prêt.');
 </script>
 
 <script>
